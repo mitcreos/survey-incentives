@@ -1,0 +1,71 @@
+---
+title: "Intro"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+1 + 1
+```
+
+You can add options to executable code like this
+
+```{r}
+#| echo: false
+2 * 2
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
+
+## Libraries and Dependencies
+
+For reproducibility and consistency, we start with a base of:
+
+-   **renv** - ensures that we manage versions of libraries used for reproducibility
+
+-   **tidyverse**  - a core set of tools and syntax for data science
+
+-   **conflicted** - detect and resolve potential library conflicts
+
+-   **%\<\>%** - the self assignment pipe contributes to more maintainable, readable notebooks
+
+For clean, consistent output:
+
+-   **gt** - standard formatted tables
+
+-   **patchwork** - clean layout of multiple plots
+
+```{r}
+if(!requireNamespace("renv")) {
+  install.packages("renv")
+  requireNamespace("renv")
+}
+
+if(!library("tidyverse",logical.return=TRUE)) {
+  install.packages("tidyverse")
+  library("tidyverse")
+  library("magrittr",include.only="%<>%")
+  conflicted::conflict_prefer("filter", "dplyr")
+  conflicted::conflict_prefer("lag", "dplyr")
+}
+
+if (!require("patchwork")) {
+  install.packages("patchwork")
+  require("patchwork")
+}
+
+if (!requireNamespace("gt")) {
+  install.packages("gt")
+  requireNamespace("gt")
+}
+
+renv::status()
+```
