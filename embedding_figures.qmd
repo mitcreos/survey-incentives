@@ -1,0 +1,42 @@
+---
+title: "embedding"
+format: pptx
+editor: visual
+output-dir: rendered_slides  
+params:
+  src_filename: embedding_figures
+  target_dir: rendered_slides
+---
+
+## Embedding figures and tables in google docs
+
+Quarto enables you to weave together content and executable code into a finished presentation. To learn more about Quarto presentations see <https://quarto.org/docs/presentations/>.
+
+When presentation are created in PowerPoint format and stored in a google drive folder, they become linkable resources. Individual slides can be embedded in other google docs as figures or tables.
+
+# Slide Section - Level 1 Headings Are Used to Group Sections
+
+## Level 2 Headings Create and title New Slides
+
+------------------------------------------------------------------------
+
+**A new slide, without a title can also be started with a horizontal rule**
+
+```{r}
+#| label: push to google drive
+#| echo: false
+#| include: false
+
+# There are three ways to push 
+# - easiest: mount a google drive folder on your desktop and use file.copy()
+# - use googledrive::drive_upload to copy the output to an arbitrary folder (more complicated, but more general)
+# - setup a quarto project, and use the output_dir and post - rendering options (not recommended)
+
+target_dir = "rendered_slides"
+
+file.copy(paste0(params[["src_filename"]],".pptx"), 
+          params[["target_dir"]]) 
+dir()
+
+```
+
