@@ -31,7 +31,7 @@ For reproducibility and consistency, we start with a base of:
 
 -   **renv** - ensures that we manage versions of libraries used for reproducibility
 
--   **tidyverse**  - a core set of tools and syntax for data science
+-   **tidyverse** - a core set of tools and syntax for data science
 
 -   **conflicted** - detect and resolve potential library conflicts
 
@@ -51,6 +51,7 @@ if(!requireNamespace("renv")) {
 
 if(!library("tidyverse",logical.return=TRUE)) {
   install.packages("tidyverse")
+  library("conflicted")
   library("tidyverse")
   library("magrittr",include.only="%<>%")
   conflicted::conflict_prefer("filter", "dplyr")
