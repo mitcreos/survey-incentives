@@ -68,5 +68,5 @@ if (!requireNamespace("gt")) {
   requireNamespace("gt")
 }
 
-renv::status()
+renv::dependencies()
 ```
