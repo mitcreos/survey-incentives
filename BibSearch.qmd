@@ -13,9 +13,9 @@ library(conflicted)
 # maintain consistency -- within limits of implementation -- across databases
 
 query.ls <- list(
-           OR_terms = c("preprint","peer review"),
-           AND_terms = c("open science","open access"),
-           NOT_terms = c("quohog","aardvark"),
+           OR_terms = c("preprint","peer","preregistraton","FAIR"),
+           AND_terms = c("open science"),
+           NOT_terms = c("quahog","aardvark"),
            FROM_date = as.Date("2019-01-1"),
            UNTIL_date = as.Date("2024-12-30"),
            MAX_results = 400,
@@ -71,26 +71,24 @@ options(openalexR.mailto = query.ls[["EMAIL_str"]])
 requireNamespace("openalexR")
 
 openalex_query_str <-
-  glue::glue('{x_or}({x_and}){x_not}',
+  glue::glue('{x_and} {x_not} ({x_or})',
               x_or = glue::glue_collapse(
                glue::glue('"{x}"', x= query.ls[["OR_terms"]]),
-               sep="|"),
+               sep=" OR "),
               x_and = glue::glue_collapse(
                glue::glue('"{x}"', x = query.ls[["AND_terms"]]),
-               sep="+"),
+               sep=" AND "),
               x_not = glue::glue_collapse(
-               glue::glue('!"{x}"', x = 
+               glue::glue('NOT "{x}"', x = 
                             c(query.ls[["NOT_terms"]])),
                           ,
-               sep=""),
+               sep=" "),
              
   )
-
 
 openalex_query <- openalexR::oa_query(
   entity = "works",
   title_and_abstract.search = openalex_query_str,
-  #title_and_abstract.search = test_string,
   from_publication_date = as.character(query.ls[["FROM_date"]]),
   to_publication_date = as.character(query.ls[["UNTIL_date"]]),
   options = list(sort = "relevance_score:desc"),
@@ -115,7 +113,7 @@ rm(openalex_query, openalex_query_str)
 **Post-process**
 
 ```{r}
-#| label: post-filter
+#| label: merge-records
 
 postFilter <- function(x, textfield,  filter.ls) {
   # TEST CASE
@@ -143,24 +141,88 @@ postFilter <- function(x, textfield,  filter.ls) {
   res
 }
 
+merged_min.df <-
+  crossref_results.df %>% 
+  select(doi, container.title, title, type, abstract, 
+         pubdate = published.online ) %>%
+  mutate(type = 
+           case_match( 
+             type,
+             c("journal-article") ~ "article",
+             .default = type
+           ),
+         pubdate = lubridate::as_date(pubdate)
+  )
+
+merged_min.df %<>% bind_rows(
+  openalex_results.df %>%
+    select(doi, container.title = so, title, type, abstract=ab, 
+           pubdate=publication_date) %>%
+    mutate(type = 
+           case_match( 
+             type,
+             c("journal-article") ~ "article",
+             .default = type
+           ),
+         pubdate = lubridate::as_date(pubdate)
+  )
+)
+
+# drop duplicate DOI's
+
+merged_min.df %<>%
+  group_by(doi) %>%
+  slice_head(n=1) %>%
+  ungroup()
+  
+
+merged_min.df %<>%
+  dplyr::filter(type %in% c("article","book-chapter","preprint","review"))
+
 # postfilter cross-ref
 
-# combine records
+merged_min.df %<>% mutate(allMtext =
+                           glue::glue("{x} {y}", x=title, y=abstract))
 
-# deduplicate
-
-```
-
-**Generate search terms**
-
-```{r}
-
-```
-
-**Chase citation to highly cited articles**
-
-```{r}
-
+merged_min.df %<>% 
+  postFilter(allMtext, filter.ls = query.ls)
 ```
 
 **Export bibliography for zotero**
+
+```{r}
+#| label: export records
+
+requireNamespace("RefManageR")
+requireNamespace("bib2df")
+
+bib.ls <- merged_min.df %>% 
+  mutate(YEAR = lubridate::year(pubdate),
+         CATEGORY = case_match(type, .default="MISC",
+                c("article") ~ "ARTICLE",
+                c("book-chapter") ~ "IN-COLLECTION",
+                c("preprint") ~ "MISC"
+                )
+           ) %>%
+  select(CATEGORY=type,TITLE=title, DOI=doi, JOURNAL=container.title) %>%
+  bib2df::df2bib()
+
+
+
+```
+
+**Todo:**
+
+-   doublecheck false positives (based on `postFilter` vs. `openAlex`
+
+-   explore search term generation using `litsearchr`
+
+-   forward citation snowballing
+
+-   Lens / Dimensions searching using `dimensionsR` , `citationchaser`
+
+-   export counts for (parts of) PRISMA chart
+
+-   pull coding spreadsheet from gdrive for PRISMA charting and descriptives
+
+-   push to Zotero
