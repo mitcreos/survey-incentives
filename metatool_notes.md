@@ -1,0 +1,1 @@
+-   metagear – interesting tool, but focused on multiple rater screening of images/tables in papers, uses a bespoke gui

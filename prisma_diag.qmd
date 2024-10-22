@@ -1,0 +1,70 @@
+---
+title: "prisma_diag"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: setup
+library(tidyverse)
+library(conflicted)
+```
+
+Different options for PRISMA diags
+
+# PRISMA2020
+
+```{r}
+#| echo: false
+
+requireNamespace("PRISMA2020")
+csvFile <- system.file("extdata", "PRISMA.csv", package = "PRISMA2020")
+data <- read.csv(csvFile)
+datap <- PRISMA2020::PRISMA_data(data)
+plot <- PRISMA2020::PRISMA_flowdiagram(datap,
+                fontsize = 12,
+                interactive = TRUE,
+                previous = FALSE,
+                other = TRUE)
+plot
+```
+
+Best looking/most complete chart.
+
+Tehre are better doc and form for creating db are here:
+
+<https://onlinelibrary.wiley.com/doi/10.1002/cl2.1230>
+
+<https://estech.shinyapps.io/prisma_flowdiagram/>
+
+<https://github.com/prisma-flowdiagram/PRISMA2020>
+
+Lacks a standard function for creating DB –\> we'd want to write one (and have it check accounting identities) rather than enter by hand.
+
+# PRISMAstatement
+
+```{r}
+requireNamespace("PRISMAstatement")
+PRISMAstatement::prisma(1000, 20, 270, 270, 10, 260, 20, 240, 107)
+```
+
+Minimal, but might work. Code is relatively compact.
+
+# prismadiagramR
+
+```{r}
+requireNamespace("prismadiagramR")
+
+set.seed(25)
+N <- 100
+studyStatus <- data.frame(Pub.ID = seq(1:N),
+                          Source = sample(letters[1:3], N, replace = TRUE),
+                          Filter = sample(letters[1:5], N, replace = TRUE))
+studyStatus$Filter[studyStatus$Filter=="e"] <- NA
+prismadiagramR::getPrisma(studyStatus) %>% DiagrammeR::grViz(.)
+
+
+
+```
+
+Out of the box – this isn't satisfactory, since it doesn't support titles for boxes. However, the code is simple, and could be refactored to add titles – and the idea of generating diag from a simple data frame is relatively clean.

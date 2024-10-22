@@ -1,0 +1,166 @@
+---
+title: "bibsearch"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: setup
+library(tidyverse)
+library(magrittr, include.only = "%<>%")
+library(conflicted)
+
+# maintain consistency -- within limits of implementation -- across databases
+
+query.ls <- list(
+           OR_terms = c("preprint","peer review"),
+           AND_terms = c("open science","open access"),
+           NOT_terms = c("quohog","aardvark"),
+           FROM_date = as.Date("2019-01-1"),
+           UNTIL_date = as.Date("2024-12-30"),
+           MAX_results = 400,
+           EMAIL_str = "foo@bar.com"
+           )
+
+```
+
+**Initial search**
+
+```{r}
+#| label: crossref-search
+
+requireNamespace("rcrossref")
+
+#Crossref provides a mechanism to supply api-keys -- or to self-identify in order to enter the 'polite' pool of queries
+
+Sys.setenv(crossref_email= query.ls[["EMAIL_str"]])
+
+## crossref supports simple queries, terms are OR'ed together; can be filtered for time + publication
+## See: https://api.crossref.org/swagger-ui/index.html#/Works/get_works
+
+crossref_query <- 
+  glue::glue_collapse(
+            glue::glue('"{x}"',
+                       x= c(query.ls[["OR_terms"]],query.ls[["AND_terms"]])),
+            sep="+")
+
+crossref_response.ls <- 
+  rcrossref::cr_works(
+        sort="score",
+        order="asc",
+        filter=c("from_update_date"=as.character(query.ls[["FROM_date"]]),
+                 "until_update_date"=as.character(query.ls[["UNTIL_date"]]),
+                 "type"="book-chapter",
+                 "type"="journal-article"
+                ),
+        query = crossref_query,          ,
+        limit=1000,
+        cursor="*",
+        cursor_max=query.ls[["MAX_results"]]
+  )
+
+crossref_results.df <- crossref_response.ls[["data"]]
+
+rm(crossref_query)
+```
+
+```{r more-searches}
+#| label: openalex-search
+
+options(openalexR.mailto = query.ls[["EMAIL_str"]])
+requireNamespace("openalexR")
+
+openalex_query_str <-
+  glue::glue('{x_or}({x_and}){x_not}',
+              x_or = glue::glue_collapse(
+               glue::glue('"{x}"', x= query.ls[["OR_terms"]]),
+               sep="|"),
+              x_and = glue::glue_collapse(
+               glue::glue('"{x}"', x = query.ls[["AND_terms"]]),
+               sep="+"),
+              x_not = glue::glue_collapse(
+               glue::glue('!"{x}"', x = 
+                            c(query.ls[["NOT_terms"]])),
+                          ,
+               sep=""),
+             
+  )
+
+
+openalex_query <- openalexR::oa_query(
+  entity = "works",
+  title_and_abstract.search = openalex_query_str,
+  #title_and_abstract.search = test_string,
+  from_publication_date = as.character(query.ls[["FROM_date"]]),
+  to_publication_date = as.character(query.ls[["UNTIL_date"]]),
+  options = list(sort = "relevance_score:desc"),
+  verbose=TRUE
+)
+
+
+# see https://docs.openalex.org/how-to-use-the-api
+openalex_response.ls <- openalexR::oa_request(
+  query_url = openalex_query,
+  paging = "cursor",
+  per_page = 200,
+  pages=seq.int(from=1,to=max(1,query.ls[["MAX_results"]]/200)),
+  verbose = TRUE,
+)
+
+openalex_results.df <- openalexR::oa2df(openalex_response.ls, entity = "works")
+
+rm(openalex_query, openalex_query_str)
+```
+
+**Post-process**
+
+```{r}
+#| label: post-filter
+
+postFilter <- function(x, textfield,  filter.ls) {
+  # TEST CASE
+  # tibble(fruit) %>% mutate(i=row_number()) %>%
+  #  postFilter(fruit, filter.ls =
+  #  list(OR_terms=c("blue","black"),AND_terms=c("berry","err"),NOT_terms="straw"))
+  
+  res <-
+     x %>%
+       dplyr::filter(!stringr::str_detect({{textfield}}, 
+          glue::glue_collapse(filter.ls[["NOT_terms"]], sep="|")
+      ))
+  
+  res %<>% 
+     dplyr::filter(stringr::str_detect({{textfield}}, 
+        glue::glue_collapse(c(filter.ls[["OR_terms"]],filter.ls[["AND_terms"]]),
+                            sep="|")
+     ))
+  
+  for (i in filter.ls[["AND_terms"]]) {
+    res %<>% 
+      dplyr::filter(str_detect({{textfield}},i))
+  }
+
+  res
+}
+
+# postfilter cross-ref
+
+# combine records
+
+# deduplicate
+
+```
+
+**Generate search terms**
+
+```{r}
+
+```
+
+**Chase citation to highly cited articles**
+
+```{r}
+
+```
+
+**Export bibliography for zotero**
