@@ -38,6 +38,23 @@ Sys.setenv(crossref_email= query.ls[["EMAIL_str"]])
 ## crossref supports simple queries, terms are OR'ed together; can be filtered for time + publication
 ## See: https://api.crossref.org/swagger-ui/index.html#/Works/get_works
 
+crossrefAuthorString <- function(x, maxauth=10) {
+  res <- x %>% 
+    slice_head(n=maxauth) %>%
+    select(given,family) %>%
+    na.omit() %>%
+    summarize(string = 
+                glue::glue_collapse(sep=", ", 
+                    glue::glue('{x} {y}',x=given, y=family))) %>%
+    pull()
+  
+  if (nrow (x)>maxauth) {
+    res <-  paste0(res,", et. al.")
+  }
+  res
+}
+
+
 crossref_query <- 
   glue::glue_collapse(
             glue::glue('"{x}"',
@@ -61,7 +78,9 @@ crossref_response.ls <-
 
 crossref_results.df <- crossref_response.ls[["data"]]
 
-rm(crossref_query)
+crossref_results.df %<>% rowwise() %>% mutate(author_str=crossrefAuthorString(author)) %>% ungroup()
+
+rm(crossref_query) 
 ```
 
 ```{r more-searches}
@@ -69,6 +88,25 @@ rm(crossref_query)
 
 options(openalexR.mailto = query.ls[["EMAIL_str"]])
 requireNamespace("openalexR")
+
+openAlexAuthorString <- function(x, maxauth=10) {
+  if(!is.data.frame(x)) {
+    return("")
+  }
+  res <- x %>% 
+    slice_head(n=maxauth) %>%
+    select(au_display_name) %>%
+    na.omit() %>%
+    summarize(string = 
+                glue::glue_collapse(sep=", ", au_display_name)) %>%
+    pull()
+  
+  if (nrow (x)>maxauth) {
+    res <-  paste0(res,", et. al.")
+  }
+  res
+}
+
 
 openalex_query_str <-
   glue::glue('{x_and} {x_not} ({x_or})',
@@ -107,6 +145,11 @@ openalex_response.ls <- openalexR::oa_request(
 
 openalex_results.df <- openalexR::oa2df(openalex_response.ls, entity = "works")
 
+debug(openAlexAuthorString)
+openalex_results.df %<>% 
+  rowwise() %>% 
+  mutate(author_str=openAlexAuthorString(author)) %>%
+  ungroup()
 rm(openalex_query, openalex_query_str)
 ```
 
@@ -144,7 +187,7 @@ postFilter <- function(x, textfield,  filter.ls) {
 merged_min.df <-
   crossref_results.df %>% 
   select(doi, container.title, title, type, abstract, 
-         pubdate = published.online ) %>%
+         pubdate = published.online, author_str ) %>%
   mutate(type = 
            case_match( 
              type,
@@ -157,7 +200,7 @@ merged_min.df <-
 merged_min.df %<>% bind_rows(
   openalex_results.df %>%
     select(doi, container.title = so, title, type, abstract=ab, 
-           pubdate=publication_date) %>%
+           pubdate=publication_date, author_str) %>%
     mutate(type = 
            case_match( 
              type,
@@ -193,10 +236,12 @@ merged_min.df %<>%
 ```{r}
 #| label: export records
 
-requireNamespace("RefManageR")
 requireNamespace("bib2df")
 
-bib.ls <- merged_min.df %>% 
+cur_date <- Sys.Date()
+
+bibout.df <- 
+  merged_min.df %>% 
   mutate(YEAR = lubridate::year(pubdate),
          CATEGORY = case_match(type, .default="MISC",
                 c("article") ~ "ARTICLE",
@@ -204,10 +249,42 @@ bib.ls <- merged_min.df %>%
                 c("preprint") ~ "MISC"
                 )
            ) %>%
-  select(CATEGORY=type,TITLE=title, DOI=doi, JOURNAL=container.title) %>%
-  bib2df::df2bib()
+  select(CATEGORY = type,
+         TITLE = title, 
+         DOI = doi, 
+         YEAR,
+         JOURNAL = container.title, 
+         AUTHOR = author_str,
+         WORKTYPE = type) %>%
+  mutate(BIBTEXKEY=glue::glue('{x}{y}',
+          x=stringr::str_trunc(stringr::str_remove_all(AUTHOR," |,"),
+                               width=10, ellipsis=""),
+          y=YEAR),
+          DATEADDED = cur_date
+         )
 
 
+#bibtex version for zotero
+bibout.df %>% bib2df::df2bib(file="bibout.bib")
+
+#target google sheets
+
+rangestart <- "pubdata!A1"
+targetsheet <- 'https://docs.google.com/spreadsheets/d/1F_ySl08aIMnkcayudIr7P5dyuB0rHKg9VZJKah6FloA/edit?gid=0#gid=0'
+requireNamespace('googlesheets4')
+sheetOut.df <- bibout.df %>%
+  rename(pub_title=TITLE, pub_authors=AUTHOR, pub_year=YEAR, pub_type = WORKTYPE,
+         pub_doi=DOI, metaDateAdded=DATEADDED ) %>%
+  relocate(pub_title,	pub_authors,	pub_year,	pub_type,	pub_doi,	metaDateAdded)
+googlesheets4::range_write(ss=targetsheet, range=rangestart, data=sheetOut.df)  
+
+
+
+
+
+```
+
+```{r}
 
 ```
 
