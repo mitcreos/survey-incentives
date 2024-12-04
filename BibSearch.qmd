@@ -13,18 +13,19 @@ library(conflicted)
 # maintain consistency -- within limits of implementation -- across databases
 
 query.ls <- list(
-           OR_terms = c("preprint","peer","preregistraton","FAIR"),
+           OR_terms = 
+             c("impact","attitude","incentive","cost","benefit","risk","reward"),
            AND_terms = c("open science"),
-           NOT_terms = c("quahog","aardvark"),
+           NOT_terms = c(),
            FROM_date = as.Date("2019-01-1"),
            UNTIL_date = as.Date("2024-12-30"),
-           MAX_results = 400,
+           MAX_results = 3000,
            EMAIL_str = "foo@bar.com"
            )
 
 ```
 
-**Initial search**
+**Crossref search**
 
 ```{r}
 #| label: crossref-search
@@ -39,6 +40,13 @@ Sys.setenv(crossref_email= query.ls[["EMAIL_str"]])
 ## See: https://api.crossref.org/swagger-ui/index.html#/Works/get_works
 
 crossrefAuthorString <- function(x, maxauth=10) {
+  if (is.null(x)) {
+    return("")
+  }
+  if (! all(c(c("given","family")) %in% colnames(x))) {
+        return("")
+
+  }
   res <- x %>% 
     slice_head(n=maxauth) %>%
     select(given,family) %>%
@@ -54,12 +62,15 @@ crossrefAuthorString <- function(x, maxauth=10) {
   res
 }
 
-
 crossref_query <- 
   glue::glue_collapse(
             glue::glue('"{x}"',
-                       x= c(query.ls[["OR_terms"]],query.ls[["AND_terms"]])),
+                       x= c(query.ls[["AND_terms"]])),
             sep="+")
+
+# Note:
+# limit too high results in server failure:
+# Warning: 500 (server error): /works - org.apache.http.ContentTooLongException: entity content is too long [454985601] for the configured buffer limit [104857600]
 
 crossref_response.ls <- 
   rcrossref::cr_works(
@@ -71,17 +82,23 @@ crossref_response.ls <-
                  "type"="journal-article"
                 ),
         query = crossref_query,          ,
-        limit=1000,
+        limit=100, # using a limit of 1000 fails with a server error 
         cursor="*",
         cursor_max=query.ls[["MAX_results"]]
   )
 
+paste("Crossref total resultset size: ", 
+      crossref_response.ls[["meta"]][["total_results"]])
+
 crossref_results.df <- crossref_response.ls[["data"]]
 
-crossref_results.df %<>% rowwise() %>% mutate(author_str=crossrefAuthorString(author)) %>% ungroup()
+crossref_results.df %<>% rowwise() %>% 
+  mutate(author_str=crossrefAuthorString(author)) %>% ungroup()
 
-rm(crossref_query) 
+rm()
 ```
+
+\#
 
 ```{r more-searches}
 #| label: openalex-search
@@ -109,7 +126,7 @@ openAlexAuthorString <- function(x, maxauth=10) {
 
 
 openalex_query_str <-
-  glue::glue('{x_and} {x_not} ({x_or})',
+  glue::glue('{x_and} {x_not} AND ({x_or})',
               x_or = glue::glue_collapse(
                glue::glue('"{x}"', x= query.ls[["OR_terms"]]),
                sep=" OR "),
@@ -130,8 +147,20 @@ openalex_query <- openalexR::oa_query(
   from_publication_date = as.character(query.ls[["FROM_date"]]),
   to_publication_date = as.character(query.ls[["UNTIL_date"]]),
   options = list(sort = "relevance_score:desc"),
+  filter=list(type=c("article","book-chapter","review")),
   verbose=TRUE
 )
+
+openalex_response.count <- openalexR::oa_request(
+  query_url = openalex_query,
+  paging = "cursor",
+  per_page = 200,
+  pages=seq.int(from=1,to=max(1,query.ls[["MAX_results"]]/200)),
+  verbose = TRUE,
+  count_only=TRUE
+)
+paste(openalex_query_str)
+paste("Open Alex Result Set N:", openalex_response.count[["count"]])
 
 
 # see https://docs.openalex.org/how-to-use-the-api
@@ -140,17 +169,17 @@ openalex_response.ls <- openalexR::oa_request(
   paging = "cursor",
   per_page = 200,
   pages=seq.int(from=1,to=max(1,query.ls[["MAX_results"]]/200)),
-  verbose = TRUE,
+  verbose = TRUE
 )
 
 openalex_results.df <- openalexR::oa2df(openalex_response.ls, entity = "works")
 
-debug(openAlexAuthorString)
 openalex_results.df %<>% 
   rowwise() %>% 
   mutate(author_str=openAlexAuthorString(author)) %>%
   ungroup()
-rm(openalex_query, openalex_query_str)
+
+rm(openalex_query_str)
 ```
 
 **Post-process**
@@ -164,11 +193,14 @@ postFilter <- function(x, textfield,  filter.ls) {
   #  postFilter(fruit, filter.ls =
   #  list(OR_terms=c("blue","black"),AND_terms=c("berry","err"),NOT_terms="straw"))
   
-  res <-
-     x %>%
+  res <- x
+  
+  if (!is.null(filter.ls[["NOT_terms"]])) {
+    res %<>%
        dplyr::filter(!stringr::str_detect({{textfield}}, 
           glue::glue_collapse(filter.ls[["NOT_terms"]], sep="|")
       ))
+  }
   
   res %<>% 
      dplyr::filter(stringr::str_detect({{textfield}}, 
@@ -220,7 +252,8 @@ merged_min.df %<>%
   
 
 merged_min.df %<>%
-  dplyr::filter(type %in% c("article","book-chapter","preprint","review"))
+  dplyr::filter(type %in% c("article","book-chapter","preprint","review")) %>%
+  dplyr::filter(!is.na(doi))
 
 # postfilter cross-ref
 
@@ -229,12 +262,14 @@ merged_min.df %<>% mutate(allMtext =
 
 merged_min.df %<>% 
   postFilter(allMtext, filter.ls = query.ls)
+
+save.image("checkpoint_bibsearch.RData")
 ```
 
 **Export bibliography for zotero**
 
 ```{r}
-#| label: export records
+#| label: export_records
 
 requireNamespace("bib2df")
 
@@ -267,25 +302,24 @@ bibout.df <-
 #bibtex version for zotero
 bibout.df %>% bib2df::df2bib(file="bibout.bib")
 
+merged_min.df %>% 
+  pull(doi) %>%
+  write_lines(file="dois.txt")
+```
+
+```{r}
+#| label: googlesheets_update
 #target google sheets
 
-rangestart <- "pubdata!A1"
+#rangestart <- "pubdata!A1"
 targetsheet <- 'https://docs.google.com/spreadsheets/d/1F_ySl08aIMnkcayudIr7P5dyuB0rHKg9VZJKah6FloA/edit?gid=0#gid=0'
 requireNamespace('googlesheets4')
 sheetOut.df <- bibout.df %>%
   rename(pub_title=TITLE, pub_authors=AUTHOR, pub_year=YEAR, pub_type = WORKTYPE,
          pub_doi=DOI, metaDateAdded=DATEADDED ) %>%
   relocate(pub_title,	pub_authors,	pub_year,	pub_type,	pub_doi,	metaDateAdded)
-googlesheets4::range_write(ss=targetsheet, range=rangestart, data=sheetOut.df)  
-
-
-
-
-
-```
-
-```{r}
-
+  googlesheets4::sheet_append(ss=targetsheet, data=sheetOut.df) 
+#googlesheets4::range_write(ss=targetsheet, range=rangestart, data=sheetOut.df) 
 ```
 
 **Todo:**
