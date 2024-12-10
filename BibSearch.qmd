@@ -271,6 +271,8 @@ save.image("checkpoint_bibsearch.RData")
 ```{r}
 #| label: export_records
 
+load("checkpoint_bibsearch.RData")
+
 requireNamespace("bib2df")
 
 cur_date <- Sys.Date()
@@ -302,8 +304,8 @@ bibout.df <-
 #bibtex version for zotero
 bibout.df %>% bib2df::df2bib(file="bibout.bib")
 
-merged_min.df %>% 
-  pull(doi) %>%
+bibout.df %>% 
+  pull(DOI) %>%
   write_lines(file="dois.txt")
 ```
 
@@ -318,7 +320,8 @@ sheetOut.df <- bibout.df %>%
   rename(pub_title=TITLE, pub_authors=AUTHOR, pub_year=YEAR, pub_type = WORKTYPE,
          pub_doi=DOI, metaDateAdded=DATEADDED ) %>%
   relocate(pub_title,	pub_authors,	pub_year,	pub_type,	pub_doi,	metaDateAdded)
-  googlesheets4::sheet_append(ss=targetsheet, data=sheetOut.df) 
+
+#googlesheets4::sheet_append(ss=targetsheet, data=sheetOut.df) 
 #googlesheets4::range_write(ss=targetsheet, range=rangestart, data=sheetOut.df) 
 ```
 
