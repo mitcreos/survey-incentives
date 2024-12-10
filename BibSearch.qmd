@@ -314,6 +314,7 @@ bibout.df %>%
 #target google sheets
 
 #rangestart <- "pubdata!A1"
+subsheet<-"pubdata"
 targetsheet <- 'https://docs.google.com/spreadsheets/d/1F_ySl08aIMnkcayudIr7P5dyuB0rHKg9VZJKah6FloA/edit?gid=0#gid=0'
 requireNamespace('googlesheets4')
 sheetOut.df <- bibout.df %>%
@@ -321,7 +322,17 @@ sheetOut.df <- bibout.df %>%
          pub_doi=DOI, metaDateAdded=DATEADDED ) %>%
   relocate(pub_title,	pub_authors,	pub_year,	pub_type,	pub_doi,	metaDateAdded)
 
-#googlesheets4::sheet_append(ss=targetsheet, data=sheetOut.df) 
+studyQOIseed <- factor(1, levels=c(1:7),
+                      labels=c("NONE -- article level entry", 
+                              "Open Data",   "Open Evaluation", "Open Methods",
+                                    "Open Software","Preprinting",                                     "Other") )
+                                    
+
+sheetOut.df %<>% mutate(studyQOI_OStype = studyQOIseed)
+expansion.df <- sheetOut.df %>% group_by(pub_doi) %>% expand(studyQOI_OStype)
+sheetOut.df %<>% select(!studyQOI_OStype) %>% left_join(expansion.df,by="pub_doi")
+
+googlesheets4::sheet_append(ss=targetsheet, data=sheetOut.df, sheet=subsheet) 
 #googlesheets4::range_write(ss=targetsheet, range=rangestart, data=sheetOut.df) 
 ```
 
