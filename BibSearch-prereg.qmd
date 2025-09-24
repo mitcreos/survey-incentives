@@ -1,0 +1,288 @@
+---
+title: "bibsearch"
+format: html
+editor: visual
+params:
+  use_saved: TRUE
+---
+
+```{r}
+#| label: setup
+library(tidyverse, include.only = "")
+library(magrittr, include.only = c("%>%","%<>%")) 
+library(conflicted)
+
+oa_savefile <- "oaquery_saved.RDS"
+```
+
+```{r more-searches}
+#| label: openalex-search-setup
+
+library("openalexR", include.only=c())
+options(openalexR.mailto = "foo@bar.com")
+
+openalex_query_str <-function(l){
+ glue::glue('({x_1}) AND ({x_2}) {x_not}',
+              x_1 = glue::glue_collapse(
+               glue::glue('"{x}"', x= l[["set1_terms"]]),
+               sep=" OR "),
+              x_2 = glue::glue_collapse(
+               glue::glue('"{x}"', x= l[["set2_terms"]]),
+               sep=" OR "),
+              x_not = glue::glue_collapse(
+               glue::glue('NOT "{x}"', x = 
+                            c(l[["NOT_terms"]])),
+                          ,
+               sep=" "),
+             
+    )
+}
+
+openalex_query_build<-function(l) {
+ openalexR::oa_query(
+  entity = "works",
+  title_and_abstract.search = openalex_query_str(l),
+  from_publication_date = as.character(l[["FROM_date"]]),
+  to_publication_date = as.character(l[["UNTIL_date"]]),
+  options = list(sort = "relevance_score:desc"),
+  #filter=list(type=c("article","book-chapter","review")),
+  verbose=TRUE
+ )
+}
+
+openalex_count_responses<-function(l) {
+  openalex_query_url <- openalex_query_build(l) 
+  resp <- openalexR::oa_request(
+     query_url = openalex_query_url,
+  paging = "cursor",
+  per_page = 1,
+  pages=1,
+  verbose = FALSE,
+  count_only=TRUE
+ )
+ resp[["count"]]
+}
+  
+openalex_retrieve_set<-function(l){
+  openalex_query_url <- openalex_query_build(l) 
+  resp <- openalexR::oa_request(
+   query_url = openalex_query_url,
+    paging = "cursor",
+    per_page = 200,
+    pages=seq.int(from=1,to=max(1,query.ls[["MAX_results"]]/200)),
+    verbose = TRUE
+  )
+  resp
+}
+
+openAlexAuthorString <- function(x, maxauth=3) {
+  if(!is.data.frame(x)) {
+    return("")
+  } 
+  
+  if (nrow(x)==0) {
+        return("")
+  }
+  res <- x %>% 
+    arrange(author_position, display_name) %>%
+    slice_head(n=maxauth) %>%
+    select(display_name) %>%
+    na.omit() %>%
+    summarize(string = 
+                glue::glue_collapse(sep=", ", display_name)) %>%
+    pull()
+  
+  if (nrow (x)>maxauth) {
+    res <-  paste0(res,", et. al.")
+  }
+  res
+}
+```
+
+```{r}
+#| label: meta-query
+
+query.ls <- 
+  list(
+           set1_terms = 
+             c("impact","attitude","incentive","cost","benefit","risk","reward",
+               "h-index", "impact factor", "citation", "productivity", "trust", "reputation", "opportunity cost","opportunity", "collaboration"
+               ),
+           set2_terms = 
+            c( "open science", "opening science", "open sciences", "opened science", "science 2.0" , "open evaluation", "open review", "open peer review", "open metrics", "open methods", "open methodology", "open method", "pre-registration", "opening data",  "FAIR data", "open scientific software" 
+            ),
+             NOT_terms = c(),
+           FROM_date = as.Date("2019-01-1"),
+           UNTIL_date = as.Date("2025-8-30"),
+           MAX_results = 10000
+           )
+```
+
+```{r}
+#| label: openalex-search
+
+if (!params$use_saved |  !file.exists(oa_savefile)) {
+  openalex_response.ls <- 
+    openalex_retrieve_set(query.ls)
+
+
+  openalex_results.df <- 
+    openalexR::oa2df(openalex_response.ls, entity = "works")
+
+
+  openalex_results.df %<>% 
+  rowwise() %>% 
+  mutate(author_str=openAlexAuthorString(authorships)) %>%
+  ungroup()
+
+
+  ext.df <- openalex_response.ls %>%
+          purrr::map( .progress=TRUE,
+                      ~ tibble::tibble(
+                      id=.x[["id"]],
+                      exttype =
+                                purrr::pluck(.x ,
+                                      "primary_location",
+                                            "source",
+                            "type"))) %>% purrr::list_rbind()
+
+  openalex_results.df %<>% 
+    bind_cols(ext.df %>% select(exttype)) 
+
+  rm(ext.df)
+
+  saveRDS(openalex_results.df, oa_savefile)
+
+}
+```
+
+```{r}
+openalex_results.df <- readRDS(oa_savefile)
+n_raw <- nrow(openalex_results.df)
+
+cat("Total # of raw query results: ", n_raw, "\n")
+
+# deduplicate
+oafiltered.df <- 
+  openalex_results.df %>%
+  dplyr::group_by(id) %>%
+  dplyr::slice_head(n=1) %>%
+  dplyr::group_by(doi) %>%
+  dplyr::slice_head(n=1) %>%
+  dplyr::ungroup()
+
+n_unique <- nrow(oafiltered.df)
+
+cat("Total # of unique query results: ", n_unique, "\n")
+
+
+# filter by unique resultf of in scope type
+oafiltered.df %<>% 
+  dplyr::filter(`type` %in% c("article", "review")) %>%
+  dplyr::filter(`exttype` %in% c("journal","conference"))
+
+n_inscopetype <- nrow(oafiltered.df)
+
+
+cat("Total #  unique published articles and review: ", n_inscopetype, "\n")
+
+# standardize field names
+
+oafiltered.df %<>%
+  dplyr::rename(pub_title=title,
+         pub_authors=author_str,
+         pub_year = publication_year,
+         pub_type = type,
+         pub_source = source_display_name,
+         pub_doi = doi,
+         pub_abstract = abstract) %>%
+  dplyr::select(dplyr::starts_with("pub_"))
+```
+
+**Update bib spreadsheet**
+
+```{r}
+#| label: update-current
+
+library('googlesheets4', include.only=c())
+
+cur_date <- Sys.Date()
+samp_n <- 50
+subsheet<-"pubdata"
+targetsheet <- 'https://docs.google.com/spreadsheets/d/1F_ySl08aIMnkcayudIr7P5dyuB0rHKg9VZJKah6FloA/edit?gid=0#gid=0'
+
+#current_bib.df <- 
+# googlesheets4::read_sheet(ss=targetsheet, sheet=subsheet) 
+
+current_dois.df <- current_bib.df %>% 
+  dplyr::select(`pub_doi`) %>%
+  dplyr::distinct()
+
+additions.df <- 
+  dplyr::anti_join(oafiltered.df, current_dois.df, by="pub_doi")
+
+cat("Total # new records: ", nrow(additions.df), "\n")
+
+additions.df %<>%
+  mutate("bibtex_category" = 
+           dplyr::case_match(`pub_type`, .default="MISC",
+                c("article") ~ "ARTICLE",
+                c("book-chapter") ~ "IN-COLLECTION",
+                c("preprint") ~ "MISC"
+                ),
+           
+          "metaDateAdded"= cur_date,
+          bibtex_key=glue::glue('{x}{y}',
+               x=stringr::str_trunc(stringr::str_remove_all(`pub_authors`," |,"),
+                               width=10, ellipsis=""),
+               y=`pub_year`)
+         )
+
+# randomize order
+additions.df %<>% 
+  dplyr::slice_sample(n=nrow(additions.df))
+
+
+additions.df %>%
+  dplyr::pull(`pub_doi`) %>%
+  write_lines(file="new_dois.txt")
+cat("Generated new_dois.txt to add to zotero \n")
+
+
+additions.df %>% 
+  dplyr::slice_head(n=500) %>%
+  dplyr::select(`pub_doi`,`pub_title`,`pub_source`,`pub_abstract`) %>%
+  write_csv("sample_abstracts.csv")
+
+
+# expand to multiple categories for coding
+studyQOIseed <- 
+  factor(1, levels=c(1:7),
+      labels=c("NONE -- article level entry", 
+               "Open Data",  
+               "Open Evaluation", 
+               "Open Methods",
+               "Open Software",
+               "Preprinting",                                     
+               "Other") )
+                                    
+
+expanded.df <- 
+  additions.df %>% 
+  dplyr::mutate(studyQOI_OStype = studyQOIseed) %>%
+  dplyr::group_by(`pub_doi`) %>%
+  expand(`studyQOI_OStype`) %>%
+  dplyr::ungroup() %>%
+  dplyr::left_join(additions.df, by="pub_doi")
+
+if (!setequal(colnames(current_bib.df), colnames(expanded.df))) {
+  stop("Target and source have different columns")
+  print(setdiff(colnames(expanded.df), colnames(current_bib.df)))
+  print(setdiff(colnames(current_bib.df), colnames(expanded.df)))
+}
+
+expanded.df %<>%
+  dplyr::relocate(colnames(current_bib.df))
+
+#googlesheets4::sheet_append(ss=targetsheet, data=expanded.df, sheet=subsheet) 
+```

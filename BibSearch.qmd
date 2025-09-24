@@ -12,6 +12,15 @@ library(conflicted)
 
 # maintain consistency -- within limits of implementation -- across databases
 
+query.main.ls <- list (
+  institution_ror_ids = c(),
+  from_date = as.Date("2019-01-1"),
+  until_date = as.Date("2024-12-30"),
+  work_types_crossref = c("journal-article"),
+  publisher_ids = c
+  
+)
+
 query.ls <- list(
            OR_terms = 
              c("impact","attitude","incentive","cost","benefit","risk","reward"),
