@@ -8,7 +8,7 @@ params:
 
 ```{r}
 #| label: setup
-library(tidyverse, include.only = "")
+library(tidyverse, include.only = c(""))
 library(magrittr, include.only = c("%>%","%<>%")) 
 library(conflicted)
 
@@ -109,13 +109,18 @@ query.ls <-
                "h-index", "impact factor", "citation", "productivity", "trust", "reputation", "opportunity cost","opportunity", "collaboration"
                ),
            set2_terms = 
-            c( "open science", "opening science", "open sciences", "opened science", "science 2.0" , "open evaluation", "open review", "open peer review", "open metrics", "open methods", "open methodology", "open method", "pre-registration", "opening data",  "FAIR data", "open scientific software" 
+            c( "open science", "opening science",  "opened science", "science 2.0" , "open evaluation", "open review", "open peer review", "open metric", "open methodology", "open method", "opening data",  "FAIR data", "open scientific software", "preregistration"
             ),
              NOT_terms = c(),
            FROM_date = as.Date("2019-01-1"),
            UNTIL_date = as.Date("2025-8-30"),
            MAX_results = 10000
            )
+
+openalex_count_responses(query.ls)
+
+query.ls$set2_terms %>% sort() %>% paste(collapse ='", "')
+
 ```
 
 ```{r}
