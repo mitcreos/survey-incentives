@@ -113,7 +113,7 @@ query.ls <-
             ),
              NOT_terms = c(),
            FROM_date = as.Date("2019-01-1"),
-           UNTIL_date = as.Date("2025-8-30"),
+           UNTIL_date = as.Date("2025-8-31"),
            MAX_results = 10000
            )
 
